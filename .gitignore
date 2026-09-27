@@ -1,0 +1,7 @@
+node_modules
+.env
+build
+
+# Each scenario gets its own local git repo (created by init-scenario) to power
+# `make reset`. Don't commit those into this repo.
+scenarios/*/.git/

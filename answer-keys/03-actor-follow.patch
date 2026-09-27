@@ -1,0 +1,106 @@
+diff --color -ruN a/backend/controllers/followController.js b/backend/controllers/followController.js
+--- a/backend/controllers/followController.js	2026-09-25 17:17:40.704332762 +0200
++++ b/backend/controllers/followController.js	2026-09-25 17:10:48.164497179 +0200
+@@ -19,8 +19,14 @@
+       return res.status(404).json({ message: 'Actor not found' });
+     }
+ 
++    const existing = await Follow.findOne({ user: userId, actor: actor._id });
++    if (existing) {
++      return res.status(409).json({ message: 'You are already following this actor' });
++    }
++
+     const follow = new Follow({ user: userId, actor: actor._id });
+-    await Actor.updateOne({ _id: actor._id }, { $inc: { followerCount: -1 } });
++    await follow.save();
++    await Actor.updateOne({ _id: actor._id }, { $inc: { followerCount: 1 } });
+ 
+     res.status(201).json({ message: `Now following ${actor.name}`, follow });
+   } catch (error) {
+@@ -51,7 +57,7 @@
+       return res.status(404).json({ message: 'You are not following this actor' });
+     }
+ 
+-    await Follow.deleteOne({ user: actor._id, actor: userId });
++    await Follow.deleteOne({ user: userId, actor: actor._id });
+     await Actor.updateOne({ _id: actor._id }, { $inc: { followerCount: -1 } });
+ 
+     res.status(200).json({ message: `Unfollowed ${actor.name}` });
+diff --color -ruN a/backend/controllers/notificationController.js b/backend/controllers/notificationController.js
+--- a/backend/controllers/notificationController.js	2026-09-25 17:19:41.091946133 +0200
++++ b/backend/controllers/notificationController.js	2026-09-25 17:11:00.324542079 +0200
+@@ -9,7 +9,7 @@
+     }
+ 
+     const notifications = await Notification.find({ user: userId }).sort({ createdAt: -1 });
+-    const unreadCount = await Notification.countDocuments({ user: userId });
++    const unreadCount = await Notification.countDocuments({ user: userId, read: false });
+ 
+     res.status(200).json({ notifications, unreadCount });
+   } catch (error) {
+diff --color -ruN a/backend/controllers/userController.js b/backend/controllers/userController.js
+--- a/backend/controllers/userController.js	2026-09-25 17:18:01.864197907 +0200
++++ b/backend/controllers/userController.js	2026-09-25 17:10:50.374575429 +0200
+@@ -7,7 +7,9 @@
+       return res.status(401).json({ message: 'Not authenticated' });
+     }
+ 
+-    const following = await Follow.find({ user: userId }).sort({ createdAt: -1 });
++    const following = await Follow.find({ user: userId })
++      .populate('actor', 'name')
++      .sort({ createdAt: -1 });
+ 
+     res.status(200).json({ following });
+   } catch (error) {
+diff --color -ruN a/backend/middleware/requireAdmin.js b/backend/middleware/requireAdmin.js
+--- a/backend/middleware/requireAdmin.js	2026-09-25 17:18:57.127484434 +0200
++++ b/backend/middleware/requireAdmin.js	2026-09-25 17:11:02.954342799 +0200
+@@ -12,7 +12,7 @@
+       return res.status(401).json({ message: 'Not authenticated' });
+     }
+ 
+-    if (user.role = 'admin') {
++    if (user.role === 'admin') {
+       return next();
+     }
+ 
+diff --color -ruN a/backend/models/Movie.js b/backend/models/Movie.js
+--- a/backend/models/Movie.js	2026-09-25 17:18:39.981770734 +0200
++++ b/backend/models/Movie.js	2026-09-25 17:10:28.507984824 +0200
+@@ -11,9 +11,9 @@
+ );
+ 
+ movieSchema.statics.findForActors = function (actorIds) {
+-  return this.find({})
++  return this.find({ actors: { $in: actorIds } })
+     .populate('actors', 'name')
+-    .sort({ releaseDate: 1 });
++    .sort({ releaseDate: -1 });
+ };
+ 
+ export default mongoose.model('Movie', movieSchema);
+diff --color -ruN a/backend/utils/notify.js b/backend/utils/notify.js
+--- a/backend/utils/notify.js	2026-09-25 17:19:20.450520390 +0200
++++ b/backend/utils/notify.js	2026-09-25 17:11:06.239410929 +0200
+@@ -1,12 +1,20 @@
+ import Follow from '../models/Follow.js';
+ import Notification from '../models/Notification.js';
+ 
+-// Notifies the followers of the movie's cast that a new movie is out.
++// Creates one notification per follower of any actor in the movie. A user who
++// follows several of the movie's actors is still notified only once, using the
++// first of their followed actors.
+ export const notifyFollowers = async (movie) => {
+   const follows = await Follow.find({ actor: { $in: movie.actors } }).populate('actor', 'name');
+ 
++  const notified = new Set();
+   const notifications = [];
+   for (const follow of follows) {
++    const key = follow.user.toString();
++    if (notified.has(key)) {
++      continue;
++    }
++    notified.add(key);
+     notifications.push({
+       user: follow.user,
+       movie: movie._id,

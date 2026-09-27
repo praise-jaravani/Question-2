@@ -1,0 +1,6 @@
+{
+  "spec": "test/**/*.spec.js",
+  "reporter": "./devtools/score-reporter.cjs",
+  "timeout": 10000,
+  "exit": true
+}

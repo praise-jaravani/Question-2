@@ -1,0 +1,112 @@
+diff --color -ruN a/backend/app.js b/backend/app.js
+--- a/backend/app.js	2026-09-25 16:07:29.408559191 +0200
++++ b/backend/app.js	2026-09-25 15:31:39.638818562 +0200
+@@ -22,7 +22,7 @@
+ app.get('/', (req, res) => res.send('Car Hire Backend is running successfully!'));
+ 
+ app.use('/api/auth', authRoutes);
+-app.use('/api/car', carRoutes);
++app.use('/api/cars', carRoutes);
+ app.use('/api/bookings', bookingRoutes);
+ 
+ app.use((err, req, res, next) => {
+diff --color -ruN a/backend/controllers/bookingController.js b/backend/controllers/bookingController.js
+--- a/backend/controllers/bookingController.js	2026-09-25 16:05:47.897434430 +0200
++++ b/backend/controllers/bookingController.js	2026-09-25 15:26:28.175591905 +0200
+@@ -30,7 +30,7 @@
+       return res.status(400).json({ message: 'End date must be after start date' });
+     }
+ 
+-    if (car.owner === userId) {
++    if (car.owner.toString() === userId) {
+       return res.status(400).json({ message: 'You cannot book your own car' });
+     }
+ 
+@@ -43,7 +43,7 @@
+       return res.status(409).json({ message: 'Car is already booked for these dates' });
+     }
+ 
+-    const nights = Math.round((end - start) / (1000 * 60 * 60 * 24)) + 1;
++    const nights = Math.round((end - start) / (1000 * 60 * 60 * 24));
+     const totalPrice = nights * car.pricePerDay;
+ 
+     const booking = new Booking({
+diff --color -ruN a/backend/controllers/carController.js b/backend/controllers/carController.js
+--- a/backend/controllers/carController.js	2026-09-25 16:03:27.902911865 +0200
++++ b/backend/controllers/carController.js	2026-09-25 15:24:29.440678466 +0200
+@@ -53,8 +53,8 @@
+       return res.status(401).json({ message: 'Not authenticated' });
+     }
+ 
+-    const { make, model, year, price, location, description } = req.body;
+-    if (!make || !model || !year || !location) {
++    const { make, model, year, pricePerDay, location, description } = req.body;
++    if (!make || !model || !year || !pricePerDay || !location) {
+       return res
+         .status(400)
+         .json({ message: 'Make, model, year, price per day and location are required' });
+@@ -64,12 +64,14 @@
+       make,
+       model,
+       year,
+-      pricePerDay: price,
++      pricePerDay,
+       location,
+       description: description || '',
+       owner: userId
+     });
+ 
++    await car.save();
++
+     res.status(201).json({ message: 'Car listed successfully', car });
+   } catch (error) {
+     console.error('Create car error:', error);
+@@ -89,7 +91,7 @@
+       return res.status(400).json({ message: 'Invalid car ID' });
+     }
+ 
+-    const car = await Car.findById(id).lean();
++    const car = await Car.findById(id);
+     if (!car) {
+       return res.status(404).json({ message: 'Car not found' });
+     }
+@@ -106,6 +108,8 @@
+     if (location) car.location = location;
+     if (description !== undefined) car.description = description;
+ 
++    await car.save();
++
+     res.status(200).json({ message: 'Car updated successfully', car });
+   } catch (error) {
+     console.error('Update car error:', error);
+@@ -167,7 +171,7 @@
+     car.available = !car.available;
+     await car.save();
+ 
+-    res.status(201).json({ message: 'Availability updated' });
++    res.status(200).json({ message: 'Availability updated', car });
+   } catch (error) {
+     console.error('Toggle availability error:', error);
+     res.status(500).json({ message: 'Server error while updating availability' });
+diff --color -ruN a/backend/models/Car.js b/backend/models/Car.js
+--- a/backend/models/Car.js	2026-09-25 16:03:07.354070693 +0200
++++ b/backend/models/Car.js	2026-09-25 15:20:28.387128039 +0200
+@@ -15,15 +15,15 @@
+ );
+ 
+ carSchema.statics.findAvailable = function (location) {
+-  const filter = { available: false };
++  const filter = { available: true };
+   if (location) {
+-    filter.location = location;
++    filter.location = { $regex: new RegExp(`^${location}$`, 'i') };
+   }
+   return this.find(filter).populate('owner', 'name email').sort({ createdAt: -1 });
+ };
+ 
+ carSchema.statics.findByOwner = function (ownerId) {
+-  return this.find({}).populate('owner', 'name email').sort({ createdAt: -1 });
++  return this.find({ owner: ownerId }).populate('owner', 'name email').sort({ createdAt: -1 });
+ };
+ 
+ export default mongoose.model('Car', carSchema);

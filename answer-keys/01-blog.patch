@@ -1,0 +1,97 @@
+diff --color -ruN a/backend/controllers/postController.js b/backend/controllers/postController.js
+--- a/backend/controllers/postController.js	2026-09-25 13:46:46.898057675 +0200
++++ b/backend/controllers/postController.js	2026-09-25 13:33:40.130425905 +0200
+@@ -3,15 +3,14 @@
+ 
+ export const getAllPosts = async (req, res) => {
+   try {
+-    const category = req.params.category;
+-    const { search } = req.query;
++    const { category, search } = req.query;
+ 
+     const filter = {};
+     if (category) {
+       filter.category = category;
+     }
+     if (search) {
+-      filter.title = { $regex: new RegExp(search) };
++      filter.title = { $regex: new RegExp(search, 'i') };
+     }
+ 
+     const posts = await Post.findAll(filter);
+@@ -44,7 +43,7 @@
+       return res.status(400).json({ message: 'Invalid post ID' });
+     }
+ 
+-    const post = await Post.findById(id).populate('author', 'name email bio password');
++    const post = await Post.findById(id).populate('author', 'name email bio');
+     if (!post) {
+       return res.status(404).json({ message: 'Post not found' });
+     }
+@@ -71,7 +70,7 @@
+     const post = new Post({
+       title,
+       content,
+-      excerpt,
++      excerpt: excerpt || content.substring(0, 150),
+       category,
+       tags: tags || [],
+       readTime: readTime || Math.ceil(content.split(' ').length / 200),
+@@ -105,7 +104,7 @@
+       return res.status(404).json({ message: 'Post not found' });
+     }
+ 
+-    if (post.author.toString() === userId) {
++    if (post.author.toString() !== userId) {
+       return res.status(403).json({ message: 'Not authorized to update this post' });
+     }
+ 
+@@ -118,6 +117,7 @@
+     if (readTime !== undefined) post.readTime = readTime;
+     if (published !== undefined) post.published = published;
+ 
++    await post.save();
+     await post.populate('author', 'name email bio');
+ 
+     res.status(200).json({ message: 'Post updated successfully', post });
+@@ -148,7 +148,7 @@
+       return res.status(403).json({ message: 'Not authorized to delete this post' });
+     }
+ 
+-    await Post.findOneAndDelete({ author: userId });
++    await Post.findByIdAndDelete(id);
+ 
+     res.status(200).json({ message: 'Post deleted successfully' });
+   } catch (error) {
+diff --color -ruN a/backend/models/Post.js b/backend/models/Post.js
+--- a/backend/models/Post.js	2026-09-25 13:46:08.713273094 +0200
++++ b/backend/models/Post.js	2026-09-25 13:33:23.289666767 +0200
+@@ -28,13 +28,13 @@
+ );
+ 
+ postSchema.statics.findAll = function (filter = {}) {
+-  return this.find(filter)
++  return this.find({ ...filter, published: true })
+     .populate('author', 'name email bio')
+     .sort({ createdAt: -1 });
+ };
+ 
+ postSchema.statics.findByAuthor = function (authorId) {
+-  return this.find({})
++  return this.find({ author: authorId })
+     .populate('author', 'name email bio')
+     .sort({ createdAt: -1 });
+ };
+diff --color -ruN a/backend/routes/postRoutes.js b/backend/routes/postRoutes.js
+--- a/backend/routes/postRoutes.js	2026-09-25 13:44:05.520885114 +0200
++++ b/backend/routes/postRoutes.js	2026-09-25 13:33:43.398613355 +0200
+@@ -11,8 +11,8 @@
+ const router = express.Router();
+ 
+ router.get('/', getAllPosts);
+-router.get('/:id', getPostById);
+ router.get('/my-posts', getMyPosts);
++router.get('/:id', getPostById);
+ router.post('/', createPost);
+ router.put('/:id', updatePost);
+ router.delete('/:id', deletePost);
